@@ -237,6 +237,68 @@ static int phy_rst(struct eth_device *dev)
 }
 #endif
 
+static void phy_detection_ip_core(struct eth_device *dev, u16 phy_addr)
+{
+	// Micrel PHY at addr 0x01
+	// IP Core PHY at addr 0x09
+
+	int ret;
+	uchar addr = 0x00;
+	uchar reg = 0x10;
+	ushort val;
+	ushort wr_val = (1 << 13); // set speed to 100Mb/s
+
+	for (addr = 0; addr < 32; addr++)
+	{
+		int j;
+
+		if (addr == phy_addr)
+		{
+			debug("\nTROTH: %s(): Skipping phy_addr=0x%x\n", __func__, addr);
+			continue;
+		}
+		else
+			debug("\nTROTH: %s(): Probing ip core phy: addr=0x%x\n", __func__, addr);
+
+		ret = phyread(dev, addr, reg, &val);
+		debug("%s(): phyread() =  %d: 0x%x, 0x%x, 0x%x\n",
+			  __func__, ret, addr, reg, val);
+
+		if ((ret == 0) && (val == 0xffff))
+		{
+			debug("%s(): No IP Core PHY at addr=0x%x\n", __func__, addr);
+			continue;
+		}
+
+		ret = phywrite(dev, addr, reg, wr_val);
+		debug("%s(): phywrite() = %d: 0x%x, 0x%x, 0x%x\n",
+			  __func__, ret, addr, reg, wr_val);
+
+		// Set GTX_CLK and TX_CLK pad skews to maximums.
+		ret = phywrite(dev, addr, 0x0d, 0x0002);
+		ret = phywrite(dev, addr, 0x0e, 0x0008); // RGMII CLK pad skew reg
+		ret = phywrite(dev, addr, 0x0d, 0x4002);
+		ret = phywrite(dev, addr, 0x0e, 0x03ff); // RGMII CLK pad skew value
+
+		ret = phywrite(dev, addr, 0x0d, 0x0002);
+		ret = phywrite(dev, addr, 0x0e, 0x0006); // RGMII TX pad skew reg
+		ret = phywrite(dev, addr, 0x0d, 0x4002);
+		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
+
+#if 0
+		ret = phywrite(dev, addr, 0x0d, 0x0002);
+		ret = phywrite(dev, addr, 0x0e, 0x0005); // RGMII RX pad skew reg
+		ret = phywrite(dev, addr, 0x0d, 0x4002);
+		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
+
+		ret = phywrite(dev, addr, 0x0d, 0x0002);
+		ret = phywrite(dev, addr, 0x0e, 0x0004); // RGMII Control Signal pad skew reg
+		ret = phywrite(dev, addr, 0x0d, 0x4002);
+		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
+#endif
+	}
+}
+
 static void phy_detection(struct eth_device *dev)
 {
 	int i;
@@ -268,6 +330,7 @@ static void phy_detection(struct eth_device *dev)
 				/* Found a valid PHY address */
 				priv->phyaddr = i;
 				debug("Found valid phy address, %d\n", i);
+				phy_detection_ip_core(dev, i);
 				return;
 			}
 		}
@@ -394,6 +457,8 @@ static int zynq_gem_init(struct eth_device *dev, bd_t * bis)
 		clk = (5 << 20) | (8 << 8) | (0 << 4) | (1 << 0);
 		break;
 	}
+
+	debug("TROTH: %s(): priv->emio = %d\n", __func__, priv->emio);
 
 	/* Change the rclk and clk only not using EMIO interface */
 	if (!priv->emio)
