@@ -86,6 +86,14 @@
 					ZYNQ_GEM_DMACR_TXSIZE | \
 					ZYNQ_GEM_DMACR_RXBUF)
 
+/* Register values for setting speed in the GMII to RGMII IP Core Phy (it can
+ * not autonegotiate and needs to be set manually when the actual phy
+ * negotiates the link speed).
+ */
+#define XLNX_IPCORE_PHY_SPEED10    (0)
+#define XLNX_IPCORE_PHY_SPEED100   (1 << 13)
+#define XLNX_IPCORE_PHY_SPEED1000  (1 << 6)
+
 /* Use MII register 1 (MII status register) to detect PHY */
 #define PHY_DETECT_REG  1
 
@@ -150,6 +158,7 @@ struct zynq_gem_priv {
 	u32 rxbd_current;
 	u32 rx_first_buf;
 	int phyaddr;
+	int phyaddr_ipcore;
 	u32 emio;
 	int init;
 	struct phy_device *phydev;
@@ -237,43 +246,35 @@ static int phy_rst(struct eth_device *dev)
 }
 #endif
 
-static void phy_detection_ip_core(struct eth_device *dev, u16 phy_addr)
+static int phy_detection_ip_core(struct eth_device *dev, u16 phy_addr)
 {
 	// Micrel PHY at addr 0x01
 	// IP Core PHY at addr 0x09
 
 	int ret;
-	uchar addr = 0x00;
+	int addr;
 	uchar reg = 0x10;
 	ushort val;
-	ushort wr_val = (1 << 13); // set speed to 100Mb/s
 
-	for (addr = 0; addr < 32; addr++)
-	{
+	for (addr = 31; addr >= 0; addr--) {
 		int j;
 
 		if (addr == phy_addr)
-		{
-			debug("\nTROTH: %s(): Skipping phy_addr=0x%x\n", __func__, addr);
 			continue;
-		}
-		else
-			debug("\nTROTH: %s(): Probing ip core phy: addr=0x%x\n", __func__, addr);
 
 		ret = phyread(dev, addr, reg, &val);
 		debug("%s(): phyread() =  %d: 0x%x, 0x%x, 0x%x\n",
 			  __func__, ret, addr, reg, val);
 
 		if ((ret == 0) && (val == 0xffff))
-		{
-			debug("%s(): No IP Core PHY at addr=0x%x\n", __func__, addr);
 			continue;
-		}
 
-		ret = phywrite(dev, addr, reg, wr_val);
-		debug("%s(): phywrite() = %d: 0x%x, 0x%x, 0x%x\n",
-			  __func__, ret, addr, reg, wr_val);
+		debug("Found valid GMII to RGMII IP Core phy address, %d\n", addr);
+
+		break;
 	}
+
+	return addr;
 }
 
 static void phy_detection(struct eth_device *dev)
@@ -307,7 +308,7 @@ static void phy_detection(struct eth_device *dev)
 				/* Found a valid PHY address */
 				priv->phyaddr = i;
 				debug("Found valid phy address, %d\n", i);
-				phy_detection_ip_core(dev, i);
+				priv->phyaddr_ipcore = phy_detection_ip_core(dev, i);
 				return;
 			}
 		}
@@ -357,6 +358,9 @@ static int zynq_gem_init(struct eth_device *dev, bd_t * bis)
 			SUPPORTED_100baseT_Full |
 			SUPPORTED_1000baseT_Half |
 			SUPPORTED_1000baseT_Full;
+#ifdef CONFIG_PHYLIB
+	ushort speed;
+#endif
 
 	if (!priv->init) {
 		/* Disable all interrupts */
@@ -417,30 +421,41 @@ static int zynq_gem_init(struct eth_device *dev, bd_t * bis)
 
 	switch (phydev->speed) {
 	case SPEED_1000:
+		debug("Setting PHY SPEED 1000\n");
+		speed = XLNX_IPCORE_PHY_SPEED1000;
 		writel(ZYNQ_GEM_NWCFG_INIT | ZYNQ_GEM_NWCFG_SPEED1000,
 		       &regs->nwcfg);
 		rclk = (0 << 4) | (1 << 0);
 		clk = (1 << 20) | (8 << 8) | (0 << 4) | (1 << 0);
 		break;
 	case SPEED_100:
+		debug("Setting PHY SPEED 100\n");
+		speed = XLNX_IPCORE_PHY_SPEED100;
 		clrsetbits_le32(&regs->nwcfg, ZYNQ_GEM_NWCFG_SPEED1000,
 				ZYNQ_GEM_NWCFG_INIT | ZYNQ_GEM_NWCFG_SPEED100);
 		rclk = 1 << 0;
 		clk = (5 << 20) | (8 << 8) | (0 << 4) | (1 << 0);
 		break;
 	case SPEED_10:
+		debug("Setting PHY SPEED 10\n");
+		speed = XLNX_IPCORE_PHY_SPEED10;
 		rclk = 1 << 0;
 		/* FIXME untested */
 		clk = (5 << 20) | (8 << 8) | (0 << 4) | (1 << 0);
 		break;
 	}
 
-	debug("TROTH: %s(): priv->emio = %d\n", __func__, priv->emio);
-
 	/* Change the rclk and clk only not using EMIO interface */
 	if (!priv->emio)
 		zynq_slcr_gem_clk_setup(dev->iobase !=
 					ZYNQ_GEM_BASEADDR0, rclk, clk);
+
+	if (priv->phyaddr_ipcore > 0)
+	{
+		int ret = phywrite(dev, priv->phyaddr_ipcore, 0x10, speed);
+		debug("%s(): phywrite() = %d: 0x%x, 0x%x, 0x%x\n",
+			__func__, ret, priv->phyaddr_ipcore, 0x10, speed);
+	}
 
 #else
 	/* PHY Setup */
