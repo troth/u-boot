@@ -273,29 +273,6 @@ static void phy_detection_ip_core(struct eth_device *dev, u16 phy_addr)
 		ret = phywrite(dev, addr, reg, wr_val);
 		debug("%s(): phywrite() = %d: 0x%x, 0x%x, 0x%x\n",
 			  __func__, ret, addr, reg, wr_val);
-
-		// Set GTX_CLK and TX_CLK pad skews to maximums.
-		ret = phywrite(dev, addr, 0x0d, 0x0002);
-		ret = phywrite(dev, addr, 0x0e, 0x0008); // RGMII CLK pad skew reg
-		ret = phywrite(dev, addr, 0x0d, 0x4002);
-		ret = phywrite(dev, addr, 0x0e, 0x03ff); // RGMII CLK pad skew value
-
-		ret = phywrite(dev, addr, 0x0d, 0x0002);
-		ret = phywrite(dev, addr, 0x0e, 0x0006); // RGMII TX pad skew reg
-		ret = phywrite(dev, addr, 0x0d, 0x4002);
-		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
-
-#if 0
-		ret = phywrite(dev, addr, 0x0d, 0x0002);
-		ret = phywrite(dev, addr, 0x0e, 0x0005); // RGMII RX pad skew reg
-		ret = phywrite(dev, addr, 0x0d, 0x4002);
-		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
-
-		ret = phywrite(dev, addr, 0x0d, 0x0002);
-		ret = phywrite(dev, addr, 0x0e, 0x0004); // RGMII Control Signal pad skew reg
-		ret = phywrite(dev, addr, 0x0d, 0x4002);
-		ret = phywrite(dev, addr, 0x0e, 0x0000); // pad skew value
-#endif
 	}
 }
 
